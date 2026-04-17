@@ -37,7 +37,7 @@ Vercel's Hobby tier is free and works perfectly for this app.
 
 ### Option A — one-click deploy
 
-1. Push this repo to your GitHub account (it's already linked to `Taimoor2500/ScriptGen`):
+1. Push this repo to your GitHub account
 
    ```bash
    git add .
