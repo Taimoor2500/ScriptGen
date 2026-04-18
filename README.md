@@ -2,7 +2,7 @@
 
 Generate ready-to-record video scripts from a single idea. Pick a **tone** (voice style from disk-backed skills) and a target length — Claude writes a tight, hook-first script scaled to that length.
 
-Built with Next.js (App Router) + Tailwind CSS + the Anthropic SDK. Tone skills load from disk at boot; adding a new tone is dropping a folder with a `SKILL.md` and matching it in `app/constants.js`.
+Built with Next.js (App Router) + Tailwind CSS + the Anthropic SDK.
 
 ---
 
@@ -10,24 +10,36 @@ Built with Next.js (App Router) + Tailwind CSS + the Anthropic SDK. Tone skills 
 
 ```
 app/
-  api/generate/route.js      ← thin HTTP adapter (~80 lines)
-  components/                ← Header, IdeaInput, OptionGrid, ScriptCard, …
-  hooks/useScriptGenerator.js
-  page.js                    ← thin orchestrator
+  api/
+    generate/route.js          ← POST: validate → rate-limit → generate → (opt) save
+    history/route.js           ← GET:  recent searches for current user (last 3)
+    auth/
+      signup/route.js          ← POST: create user + session
+      login/route.js           ← POST: verify + session
+      logout/route.js          ← POST: destroy session + clear cookie
+      me/route.js              ← GET:  current user (null if logged out)
+  components/                  ← Header, IdeaInput, OptionGrid, ScriptCard,
+                                 AuthMenu, AuthPanel, HistoryList, …
+  hooks/                       ← useScriptGenerator, useAuth, useHistory
+  page.js                      ← thin orchestrator
 lib/
-  skills/                    ← parser.js, registry.js
-  config/                    ← lengths.js, tones.js
-  validation/                ← zod request schema
-  prompt/                    ← system.js, user.js
-  anthropic/                 ← client.js (singleton), generate.js (domain)
-  rate-limit/                ← in-memory (swappable for Redis)
-  errors.js                  ← typed AppError hierarchy
-  logger.js                  ← structured JSON logs
-skills/                      ← tone skills (one folder per tone)
+  auth/                        ← password.js (bcrypt), user.js, session.js, http.js
+  db/                          ← client.js (node:sqlite singleton), schema.sql,
+                                 searches.js (cap-at-3 history)
+  skills/                      ← parser.js, registry.js
+  config/                      ← lengths.js, tones.js
+  validation/                  ← zod schemas (request, auth, content-policy)
+  prompt/                      ← system.js, user.js
+  anthropic/                   ← client.js (singleton), generate.js (domain)
+  rate-limit/                  ← in-memory (swappable for Redis)
+  errors.js                    ← typed AppError hierarchy
+  logger.js                    ← structured JSON logs
+skills/                        ← tone skills (one folder per tone)
   dramatic/SKILL.md
   neutral/SKILL.md
   uplifting/SKILL.md
-tests/                       ← vitest unit tests
+data/scriptgen.db              ← sqlite file (gitignored)
+tests/                         ← vitest unit tests
 ```
 
 **Design choices:**
@@ -35,6 +47,8 @@ tests/                       ← vitest unit tests
 - **Tone skills on disk.** Each tone is a folder with YAML frontmatter (`name`, `label`, `hint`, `version`) plus a prompt body. Loaded once at boot, validated (directory name must match frontmatter `name`), cached in a module-level singleton.
 - **Prompt caching.** The stable system prompt enumerates every tone skill; the chosen tone is passed in the user message only. That keeps the cache key stable, so Anthropic's `cache_control: ephemeral` delivers ~90% input-token savings on cache hits.
 - **Model tiering.** 1 & 3 min scripts → `claude-haiku-4-5`. 5 & 10 min → `claude-sonnet-4-5`. Force one model via `ANTHROPIC_MODEL`.
+- **Accounts + history on SQLite.** Accounts and per-user history live in SQLite via Node 22's built-in `node:sqlite` — no native compile step. Login is **optional**: anonymous users can still generate scripts, they just don't get history. Signed-in users get their **last 3 searches** saved automatically (inputs + full script), with the cap enforced atomically inside a transaction.
+- **Auth.** Email + password, bcrypt-hashed (10 rounds). Sessions are opaque 32-byte random tokens stored in the DB and handed back as `HttpOnly; SameSite=Lax` cookies (30-day TTL). Failed logins do a dummy bcrypt compare so the response time doesn't leak email existence.
 - **Typed errors.** `ValidationError` → 400, `RateLimitError` → 429 with `Retry-After`, `ConfigError` → 500, `UpstreamError` → 502. The HTTP adapter is the only thing that knows about status codes.
 - **Per-request correlation.** Every request gets a UUID that's echoed in the response header (`X-Request-Id`) and tagged onto every log line from that request.
 - **Pluggable rate limiter.** In-memory today; the public interface (`check`, `enforce`) is identical to what a Redis implementation would expose, so you swap the module and move on.
@@ -43,7 +57,7 @@ tests/                       ← vitest unit tests
 
 ## Run it locally
 
-Requires Node 18.17+.
+Requires **Node 22+** (we use the built-in `node:sqlite` module).
 
 ```bash
 npm install
@@ -107,6 +121,8 @@ Then add the matching entry to `app/constants.js` (`TONES`) so the UI shows it. 
 | `RATE_LIMIT_MAX`        | No       | `10`                                        | Max requests per IP per window          |
 | `RATE_LIMIT_WINDOW_MS`  | No       | `3600000` (1h)                              | Rate-limit window in ms                 |
 | `LOG_LEVEL`             | No       | `info`                                      | `debug` / `info` / `warn` / `error`     |
+| `SCRIPTGEN_DB_PATH`     | No       | `./data/scriptgen.db`                       | Override sqlite file location           |
+| `BCRYPT_ROUNDS`         | No       | `10`                                        | Password hashing cost                   |
 
 ---
 

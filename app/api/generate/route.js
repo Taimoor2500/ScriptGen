@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { parseGenerateRequest } from "../../../lib/validation/request.js";
+import { assertPromptContentAllowed } from "../../../lib/validation/content-policy.js";
 import { generateScript } from "../../../lib/anthropic/generate.js";
 import { defaultLimiter, clientKey } from "../../../lib/rate-limit/in-memory.js";
 import { AppError } from "../../../lib/errors.js";
 import { logger } from "../../../lib/logger.js";
+import { readSessionFromRequest } from "../../../lib/auth/session.js";
+import { recordSearch } from "../../../lib/db/searches.js";
 import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -28,6 +31,8 @@ export async function POST(req) {
 
     // (3) validate
     const parsed = parseGenerateRequest(body);
+    assertPromptContentAllowed(parsed.prompt);
+
     log.info("request.validated", {
       tone: parsed.tone,
       length: parsed.length,
@@ -44,9 +49,32 @@ export async function POST(req) {
       { requestId }
     );
 
-    // (5) success
+    // (5) persist to history if logged in. Fire-and-forget semantics: a DB
+    // failure must never take down a successful generation.
+    const ctx = readSessionFromRequest(req);
+    let savedId = null;
+    if (ctx) {
+      try {
+        const row = recordSearch({
+          userId: ctx.user.id,
+          prompt: parsed.prompt,
+          tone: parsed.tone,
+          lengthMinutes: parsed.length,
+          model: result.model,
+          wordCount: result.wordCount,
+          targetWords: result.targetWords,
+          script: result.script,
+        });
+        savedId = row.id;
+        log.info("history.saved", { user_id: ctx.user.id, search_id: savedId });
+      } catch (dbErr) {
+        log.error("history.save_failed", { msg: dbErr?.message });
+      }
+    }
+
+    // (6) success
     return NextResponse.json(
-      { ...result, requestId },
+      { ...result, requestId, savedSearchId: savedId },
       {
         headers: {
           "X-Request-Id": requestId,

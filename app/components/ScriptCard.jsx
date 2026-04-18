@@ -7,8 +7,7 @@ import { TONES, LENGTHS } from "../constants.js";
 
 /**
  * Right-side output card. Displays either the generated script, a loading
- * skeleton, or the empty state — plus copy/download actions and a compact
- * usage footer (tokens, cache status).
+ * skeleton, or the empty state — plus copy/download actions.
  */
 export function ScriptCard({ script, loading, meta, tone, length, prompt }) {
   const [copied, setCopied] = useState(false);
@@ -76,33 +75,6 @@ export function ScriptCard({ script, loading, meta, tone, length, prompt }) {
           <article className="script-prose text-[15px] text-white/90">{script}</article>
         )}
       </div>
-
-      {meta?.model && <UsageFooter meta={meta} />}
     </div>
-  );
-}
-
-function UsageFooter({ meta }) {
-  const { model, usage } = meta;
-  return (
-    <p className="mt-3 text-[11px] text-white/30">
-      Model: {model}
-      {usage && (
-        <>
-          {" · "}
-          {usage.input} in / {usage.output} out tokens
-          {usage.cacheRead > 0 && (
-            <span className="ml-1 text-emerald-400/70">
-              · cache hit ({usage.cacheRead})
-            </span>
-          )}
-          {usage.cacheWrite > 0 && usage.cacheRead === 0 && (
-            <span className="ml-1 text-white/40">
-              · cache primed ({usage.cacheWrite})
-            </span>
-          )}
-        </>
-      )}
-    </p>
   );
 }
