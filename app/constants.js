@@ -16,7 +16,7 @@ export const LENGTHS = [
 
 export const EXAMPLES = [
   "The life and death of Cleopatra",
-  "Why octopuses might be the smartest animals on Earth",
+  "Why octopuses might be the smartest animals",
   "How the 2008 financial crisis actually happened",
   "A beginner's guide to making sourdough bread",
 ];
