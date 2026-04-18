@@ -1,29 +1,14 @@
-import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { _setDbForTests, _resetDbForTests } from "../../lib/db/client.js";
-
-const nodeRequire = createRequire(import.meta.url);
-const { DatabaseSync } = nodeRequire("node:sqlite");
+import { getSql, _resetSqlForTests } from "../../lib/db/client.js";
 
 /**
- * Creates a pristine in-memory sqlite DB with the schema applied, installs
- * it as the module-level singleton, and returns the handle. Tests call this
- * in `beforeEach` so every test gets an isolated fresh DB.
+ * Truncates all app tables (requires DATABASE_URL and applied schema).
  */
-export function freshTestDb() {
-  _resetDbForTests();
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  const schema = readFileSync(
-    join(process.cwd(), "lib", "db", "schema.sql"),
-    "utf8"
-  );
-  db.exec(schema);
-  _setDbForTests(db);
-  return db;
+export async function resetTestTables() {
+  const sql = getSql();
+  await sql`TRUNCATE TABLE sessions, searches, users RESTART IDENTITY CASCADE`;
 }
 
-export function closeTestDb() {
-  _resetDbForTests();
+/** Disconnects the pooled client (e.g. after a test file). */
+export async function closeTestDb() {
+  await _resetSqlForTests();
 }

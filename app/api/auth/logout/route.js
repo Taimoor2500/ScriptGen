@@ -10,7 +10,7 @@ export const POST = authRoute("POST /api/auth/logout", async (req, { requestId, 
   const cookie = req.headers.get("cookie");
   const sessionId = parseSessionCookie(cookie);
   if (sessionId) {
-    destroySession(sessionId);
+    await destroySession(sessionId);
     log.info("logout.ok");
   }
   const res = NextResponse.json({ ok: true, requestId }, { headers: { "X-Request-Id": requestId } });

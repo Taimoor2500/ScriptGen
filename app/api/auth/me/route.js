@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const GET = authRoute("GET /api/auth/me", async (req, { requestId }) => {
-  const ctx = readSessionFromRequest(req);
+  const ctx = await readSessionFromRequest(req);
   return NextResponse.json(
     { user: ctx?.user || null, requestId },
     { headers: { "X-Request-Id": requestId } }

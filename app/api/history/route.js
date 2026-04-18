@@ -12,14 +12,14 @@ export const dynamic = "force-dynamic";
  * than 401 — history is a nice-to-have, not an auth barrier.
  */
 export const GET = authRoute("GET /api/history", async (req, { requestId }) => {
-  const ctx = readSessionFromRequest(req);
+  const ctx = await readSessionFromRequest(req);
   if (!ctx) {
     return NextResponse.json(
       { searches: [], requestId },
       { headers: { "X-Request-Id": requestId } }
     );
   }
-  const rows = listRecentSearches(ctx.user.id);
+  const rows = await listRecentSearches(ctx.user.id);
   const searches = rows.map(toPublic);
   return NextResponse.json(
     { searches, requestId },

@@ -51,11 +51,11 @@ export async function POST(req) {
 
     // (5) persist to history if logged in. Fire-and-forget semantics: a DB
     // failure must never take down a successful generation.
-    const ctx = readSessionFromRequest(req);
+    const ctx = await readSessionFromRequest(req);
     let savedId = null;
     if (ctx) {
       try {
-        const row = recordSearch({
+        const row = await recordSearch({
           userId: ctx.user.id,
           prompt: parsed.prompt,
           tone: parsed.tone,

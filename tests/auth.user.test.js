@@ -1,24 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { freshTestDb, closeTestDb } from "./helpers/db.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { resetTestTables } from "./helpers/db.js";
 import { createUser, authenticate, getUserById } from "../lib/auth/user.js";
 import { ValidationError } from "../lib/errors.js";
 
-describe("user accounts", () => {
-  beforeEach(() => { freshTestDb(); });
-  afterEach(() => { closeTestDb(); });
+const hasDb = Boolean(process.env.DATABASE_URL);
+
+describe.skipIf(!hasDb)("user accounts", () => {
+  beforeEach(async () => {
+    await resetTestTables();
+  });
 
   it("creates a user and hashes the password on disk", async () => {
     const u = await createUser("Alice@Example.com", "hunter2!!");
     expect(u.id).toBeGreaterThan(0);
-    // Email is normalized to lowercase on insert.
     expect(u.email).toBe("alice@example.com");
-    expect(u.password_hash).toBeUndefined(); // never leaked
+    expect(u.password_hash).toBeUndefined();
   });
 
   it("rejects duplicate email with ValidationError", async () => {
     await createUser("dup@example.com", "password123");
-    await expect(createUser("DUP@example.com", "password123"))
-      .rejects.toBeInstanceOf(ValidationError);
+    await expect(createUser("DUP@example.com", "password123")).rejects.toBeInstanceOf(
+      ValidationError
+    );
   });
 
   it("authenticates with correct credentials", async () => {
@@ -35,7 +38,7 @@ describe("user accounts", () => {
 
   it("looks up a user by id without password hash", async () => {
     const u = await createUser("dan@example.com", "password123");
-    const again = getUserById(u.id);
+    const again = await getUserById(u.id);
     expect(again).toMatchObject({ id: u.id, email: "dan@example.com" });
     expect(again.password_hash).toBeUndefined();
   });

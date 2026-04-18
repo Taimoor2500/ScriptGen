@@ -20,7 +20,7 @@ export const POST = authRoute("POST /api/auth/signup", async (req, { requestId, 
   const { email, password } = parseSignup(body);
 
   const user = await createUser(email, password);
-  const { id: sessionId } = createSession(user.id);
+  const { id: sessionId } = await createSession(user.id);
 
   log.info("signup.ok", { user_id: user.id });
 

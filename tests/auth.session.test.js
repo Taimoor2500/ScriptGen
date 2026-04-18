@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { freshTestDb, closeTestDb } from "./helpers/db.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { resetTestTables } from "./helpers/db.js";
 import { createUser } from "../lib/auth/user.js";
 import {
   createSession,
@@ -10,50 +10,55 @@ import {
   SESSION_COOKIE,
 } from "../lib/auth/session.js";
 
+const hasDb = Boolean(process.env.DATABASE_URL);
+
 function reqWithCookie(cookie) {
   return { headers: { get: (k) => (k.toLowerCase() === "cookie" ? cookie : null) } };
 }
 
-describe("session lifecycle", () => {
-  beforeEach(() => { freshTestDb(); });
-  afterEach(() => { closeTestDb(); });
+describe.skipIf(!hasDb)("session lifecycle", () => {
+  beforeEach(async () => {
+    await resetTestTables();
+  });
 
   it("creates an opaque session ID and persists it", async () => {
     const u = await createUser("eve@example.com", "password123");
-    const { id, expiresAt } = createSession(u.id);
+    const { id, expiresAt } = await createSession(u.id);
     expect(id).toMatch(/^[a-f0-9]{64}$/);
     expect(expiresAt).toBeGreaterThan(Date.now());
   });
 
   it("reads a session back via the cookie header", async () => {
     const u = await createUser("frank@example.com", "password123");
-    const { id } = createSession(u.id);
-    const ctx = readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`));
+    const { id } = await createSession(u.id);
+    const ctx = await readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`));
     expect(ctx?.user?.email).toBe("frank@example.com");
   });
 
   it("returns null for missing / malformed / unknown cookies", async () => {
-    expect(readSessionFromRequest(reqWithCookie(""))).toBeNull();
-    expect(readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=nothex`))).toBeNull();
-    expect(readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=` + "a".repeat(64))))
-      .toBeNull();
+    expect(await readSessionFromRequest(reqWithCookie(""))).toBeNull();
+    expect(await readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=nothex`))).toBeNull();
+    expect(
+      await readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=` + "a".repeat(64)))
+    ).toBeNull();
   });
 
   it("treats expired rows as logged out and cleans them up", async () => {
     const u = await createUser("grace@example.com", "password123");
-    const { id } = createSession(u.id, { now: () => Date.now() - 1000 * 60 * 60 * 24 * 365 });
-    // The stored row is a year old → ttl elapsed → must be treated as logged out.
-    const ctx = readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`));
+    const { id } = await createSession(u.id, { now: () => Date.now() - 1000 * 60 * 60 * 24 * 365 });
+    const ctx = await readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`));
     expect(ctx).toBeNull();
   });
 
   it("destroySession removes the row", async () => {
     const u = await createUser("henry@example.com", "password123");
-    const { id } = createSession(u.id);
-    destroySession(id);
-    expect(readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`))).toBeNull();
+    const { id } = await createSession(u.id);
+    await destroySession(id);
+    expect(await readSessionFromRequest(reqWithCookie(`${SESSION_COOKIE}=${id}`))).toBeNull();
   });
+});
 
+describe("session cookie serialization", () => {
   it("parseSessionCookie picks only the right cookie out of a header", () => {
     const hex = "a".repeat(64);
     const header = `theme=dark; ${SESSION_COOKIE}=${hex}; lang=en`;

@@ -24,7 +24,7 @@ export const POST = authRoute("POST /api/auth/login", async (req, { requestId, l
     // Deliberately vague — no hint whether the email exists.
     throw new AppError("Invalid email or password.", 401, "invalid_credentials");
   }
-  const { id: sessionId } = createSession(user.id);
+  const { id: sessionId } = await createSession(user.id);
 
   log.info("login.ok", { user_id: user.id });
 

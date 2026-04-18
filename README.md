@@ -24,7 +24,7 @@ app/
   page.js                      ← thin orchestrator
 lib/
   auth/                        ← password.js (bcrypt), user.js, session.js, http.js
-  db/                          ← client.js (node:sqlite singleton), schema.sql,
+  db/                          ← client.js (postgres.js → Neon), schema.pg.sql,
                                  searches.js (cap-at-3 history)
   skills/                      ← parser.js, registry.js
   config/                      ← lengths.js, tones.js
@@ -38,8 +38,7 @@ skills/                        ← tone skills (one folder per tone)
   dramatic/SKILL.md
   neutral/SKILL.md
   uplifting/SKILL.md
-data/scriptgen.db              ← sqlite file (gitignored)
-tests/                         ← vitest unit tests
+tests/                         ← vitest (DB tests need DATABASE_URL in .env.local)
 ```
 
 **Design choices:**
@@ -47,7 +46,7 @@ tests/                         ← vitest unit tests
 - **Tone skills on disk.** Each tone is a folder with YAML frontmatter (`name`, `label`, `hint`, `version`) plus a prompt body. Loaded once at boot, validated (directory name must match frontmatter `name`), cached in a module-level singleton.
 - **Prompt caching.** The stable system prompt enumerates every tone skill; the chosen tone is passed in the user message only. That keeps the cache key stable, so Anthropic's `cache_control: ephemeral` delivers ~90% input-token savings on cache hits.
 - **Model tiering.** 1 & 3 min scripts → `claude-haiku-4-5`. 5 & 10 min → `claude-sonnet-4-5`. Force one model via `ANTHROPIC_MODEL`.
-- **Accounts + history on SQLite.** Accounts and per-user history live in SQLite via Node 22's built-in `node:sqlite` — no native compile step. Login is **optional**: anonymous users can still generate scripts, they just don't get history. Signed-in users get their **last 3 searches** saved automatically (inputs + full script), with the cap enforced atomically inside a transaction.
+- **Accounts + history on Neon (PostgreSQL).** Accounts and per-user history use **`postgres`** + `DATABASE_URL` (Neon connection string). Login is **optional**: anonymous users can still generate scripts, they just don't get history. Signed-in users get their **last 3 searches** saved automatically (inputs + full script), with the cap enforced atomically inside a transaction.
 - **Auth.** Email + password, bcrypt-hashed (10 rounds). Sessions are opaque 32-byte random tokens stored in the DB and handed back as `HttpOnly; SameSite=Lax` cookies (30-day TTL). Failed logins do a dummy bcrypt compare so the response time doesn't leak email existence.
 - **Typed errors.** `ValidationError` → 400, `RateLimitError` → 429 with `Retry-After`, `ConfigError` → 500, `UpstreamError` → 502. The HTTP adapter is the only thing that knows about status codes.
 - **Per-request correlation.** Every request gets a UUID that's echoed in the response header (`X-Request-Id`) and tagged onto every log line from that request.
@@ -57,11 +56,13 @@ tests/                         ← vitest unit tests
 
 ## Run it locally
 
-Requires **Node 22+** (we use the built-in `node:sqlite` module).
+Requires **Node 18+**.
 
 ```bash
 npm install
-cp .env.local.example .env.local         # then paste your Anthropic key
+cp .env.local.example .env.local
+# Add ANTHROPIC_API_KEY and DATABASE_URL (Neon project → Connection string).
+npm run db:migrate                       # create tables in Neon (once per database)
 npm run dev                              # http://localhost:3000
 ```
 
@@ -86,7 +87,7 @@ Vercel's Hobby tier is free and works perfectly for this app.
    git commit -m "Production-grade ScriptGen"
    git push -u origin main
    ```
-2. Import at [vercel.com/new](https://vercel.com/new), paste your `ANTHROPIC_API_KEY`, click Deploy.
+2. Import at [vercel.com/new](https://vercel.com/new), add **`ANTHROPIC_API_KEY`** and **`DATABASE_URL`** (same Neon string as locally), run **`npm run db:migrate`** once against that DB (or paste `lib/db/schema.pg.sql` in the Neon SQL editor), then deploy.
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FTaimoor2500%2FScriptGen&env=ANTHROPIC_API_KEY&envDescription=Your%20Anthropic%20API%20key%20(keep%20it%20secret).&envLink=https%3A%2F%2Fconsole.anthropic.com%2F&project-name=scriptgen&repository-name=scriptgen)
 
@@ -117,11 +118,11 @@ Then add the matching entry to `app/constants.js` (`TONES`) so the UI shows it. 
 | Variable                | Required | Default                                     | Purpose                                 |
 | ----------------------- | -------- | ------------------------------------------- | --------------------------------------- |
 | `ANTHROPIC_API_KEY`     | Yes      | —                                           | Your Anthropic API key                  |
+| `DATABASE_URL`          | Yes*     | —                                           | Neon Postgres connection string (auth + history). *Required for signup/login/history; optional if you only use anonymous generate. |
 | `ANTHROPIC_MODEL`       | No       | Haiku for 1–3 min, Sonnet for 5–10 min      | Force a specific model                  |
 | `RATE_LIMIT_MAX`        | No       | `10`                                        | Max requests per IP per window          |
 | `RATE_LIMIT_WINDOW_MS`  | No       | `3600000` (1h)                              | Rate-limit window in ms                 |
 | `LOG_LEVEL`             | No       | `info`                                      | `debug` / `info` / `warn` / `error`     |
-| `SCRIPTGEN_DB_PATH`     | No       | `./data/scriptgen.db`                       | Override sqlite file location           |
 | `BCRYPT_ROUNDS`         | No       | `10`                                        | Password hashing cost                   |
 
 ---
